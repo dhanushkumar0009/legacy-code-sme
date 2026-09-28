@@ -105,8 +105,7 @@ backend/
   main.py                  FastAPI app: /chat, /memories, /simulate-code-change
   agent/
     hindsight_client.py    retain() / recall() / reflect() wrapper
-    groq_client.py         Groq chat + function-calling loop with retry
-    tools.py                Tool schemas + implementations the LLM can call
+    grthe LLM can call
     staleness.py            Our own confidence/staleness tracking (SQLite)
     prompts.py               System prompt
   data/sample_legacy_repo/  Seed legacy C# files
