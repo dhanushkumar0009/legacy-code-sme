@@ -133,7 +133,62 @@
             </div>
           </div>
         </section>
+  <!-- MEMORY -->
+<section class="view" id="view-memoryview">
+  <div class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Codebase Memory</h2>
+        <p class="panel-subtitle">
+          Review and manage what LegacyLens knows about your codebase.
+        </p>
+      </div>
 
+      <div class="memory-page-filters" id="memoryPageFilters">
+        <button class="filter-chip active" data-filter="ALL" type="button">
+          All
+        </button>
+        <button class="filter-chip" data-filter="CONFIRMED" type="button">
+          Confirmed
+        </button>
+        <button class="filter-chip" data-filter="INFERRED" type="button">
+          Inferred
+        </button>
+        <button class="filter-chip" data-filter="STALE" type="button">
+          Stale
+        </button>
+      </div>
+    </div>
+
+    <div class="memory-page-stats">
+      <div class="memory-stat">
+        <span class="memory-stat-label">Total</span>
+        <strong id="memoryTotal">0</strong>
+      </div>
+
+      <div class="memory-stat confirmed">
+        <span class="memory-stat-label">Confirmed</span>
+        <strong id="memoryConfirmed">0</strong>
+      </div>
+
+      <div class="memory-stat inferred">
+        <span class="memory-stat-label">Inferred</span>
+        <strong id="memoryInferred">0</strong>
+      </div>
+
+      <div class="memory-stat stale">
+        <span class="memory-stat-label">Stale</span>
+        <strong id="memoryStale">0</strong>
+      </div>
+    </div>
+
+    <div class="memory-page-list" id="memoryPageList">
+      <div class="empty-state">
+        No entities tracked yet.
+      </div>
+    </div>
+  </div>
+</section>
         <!-- ANALYSIS -->
         <section class="view" id="view-analysis">
           <div class="panel">

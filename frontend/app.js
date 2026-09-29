@@ -1,17 +1,10 @@
 (() => {
   "use strict";
 
-  // ============================================================
-  // CONFIG
-  // ============================================================
-
   const API_BASE = window.LEGACY_SME_API_BASE || "";
 
-  // Keep the frontend from sending an ever-growing conversation.
-  const MAX_HISTORY_MESSAGES = 12;
-
   // ============================================================
-  // DOM
+  // DOM ELEMENTS
   // ============================================================
 
   const el = (id) => document.getElementById(id);
@@ -22,7 +15,6 @@
   const drawerBackdrop = el("drawerBackdrop");
 
   const viewTitle = el("viewTitle");
-
   const statusDot = el("statusDot");
   const statusText = el("statusText");
 
@@ -49,7 +41,7 @@
   };
 
   // ============================================================
-  // STATE
+  // APPLICATION STATE
   // ============================================================
 
   const state = {
@@ -58,147 +50,64 @@
     filter: "ALL",
     activeView: "overview",
     selectedEntity: null,
-    backendOnline: false,
   };
-
-  // ============================================================
-  // HELPERS
-  // ============================================================
-
-  function escapeHtml(value) {
-    const div = document.createElement("div");
-    div.textContent = String(value ?? "");
-    return div.innerHTML;
-  }
-
-  function formatDate(timestamp) {
-    if (!timestamp) return null;
-
-    try {
-      return new Date(timestamp * 1000).toLocaleString();
-    } catch {
-      return null;
-    }
-  }
-
-  function isInternalErrorText(text) {
-    if (!text) return false;
-
-    const lower = text.toLowerCase();
-
-    return (
-      lower.includes("i ran out of reasoning steps") ||
-      lower.includes("i ran out of reasoning") ||
-      lower.includes("traceback") ||
-      lower.includes("rate_limit_exceeded") ||
-      lower.includes("tokens per minute")
-    );
-  }
-
-  function friendlyChatError(status, data) {
-    const detail =
-      data?.detail ||
-      data?.reply ||
-      "";
-
-    const text = String(detail).toLowerCase();
-
-    if (
-      status === 429 ||
-      text.includes("rate limit") ||
-      text.includes("rate_limit_exceeded") ||
-      text.includes("tokens per minute")
-    ) {
-      return (
-        "The AI service is temporarily rate-limited. " +
-        "Please wait a few seconds and try again."
-      );
-    }
-
-    if (status >= 500) {
-      return (
-        "LegacyLens couldn't complete that request. " +
-        "Please try again."
-      );
-    }
-
-    if (!status) {
-      return (
-        "I couldn't connect to the LegacyLens backend. " +
-        "Please check that the service is running."
-      );
-    }
-
-    return detail || "Something went wrong. Please try again.";
-  }
 
   // ============================================================
   // MARKDOWN
   // ============================================================
 
-  function renderMarkdown(text) {
-    const safeText = String(text ?? "");
+  function escapeHtml(str) {
+    const d = document.createElement("div");
+    d.textContent = str;
+    return d.innerHTML;
+  }
 
+  function renderMarkdown(text) {
     let html;
 
     try {
-      if (window.marked) {
-        html = window.marked.parse(safeText);
-      } else {
-        html = escapeHtml(safeText).replace(/\n/g, "<br>");
-      }
-    } catch {
-      html = escapeHtml(safeText).replace(/\n/g, "<br>");
+      html = window.marked
+        ? window.marked.parse(text)
+        : escapeHtml(text);
+    } catch (e) {
+      html = escapeHtml(text);
     }
 
     const wrapper = document.createElement("div");
-    wrapper.className = "markdown-content";
     wrapper.innerHTML = html;
 
-    // Syntax highlighting
     wrapper.querySelectorAll("pre code").forEach((block) => {
       if (window.hljs) {
         try {
           window.hljs.highlightElement(block);
-        } catch {
-          // Highlighting failure should never break the response.
+        } catch (e) {
+          // Ignore highlighting errors
         }
       }
 
       const pre = block.parentElement;
 
-      if (!pre || pre.querySelector(".copy-btn")) {
-        return;
+      if (!pre.querySelector(".copy-btn")) {
+        const btn = document.createElement("button");
+
+        btn.className = "copy-btn";
+        btn.type = "button";
+        btn.textContent = "Copy";
+
+        btn.addEventListener("click", () => {
+          navigator.clipboard
+            .writeText(block.textContent)
+            .then(() => {
+              btn.textContent = "Copied";
+
+              setTimeout(() => {
+                btn.textContent = "Copy";
+              }, 1400);
+            });
+        });
+
+        pre.appendChild(btn);
       }
-
-      const copyButton = document.createElement("button");
-
-      copyButton.className = "copy-btn";
-      copyButton.type = "button";
-      copyButton.textContent = "Copy";
-
-      copyButton.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(
-            block.textContent || ""
-          );
-
-          copyButton.textContent = "Copied";
-
-          setTimeout(() => {
-            copyButton.textContent = "Copy";
-          }, 1400);
-
-        } catch {
-          copyButton.textContent = "Copy failed";
-
-          setTimeout(() => {
-            copyButton.textContent = "Copy";
-          }, 1400);
-        }
-      });
-
-      pre.appendChild(copyButton);
     });
 
     return wrapper;
@@ -211,51 +120,52 @@
   function setActiveView(view) {
     state.activeView = view;
 
-    document.querySelectorAll(".nav-item").forEach((button) => {
-      button.classList.toggle(
+    document.querySelectorAll(".nav-item").forEach((btn) => {
+      btn.classList.toggle(
         "active",
-        button.dataset.view === view
+        btn.dataset.view === view
       );
     });
 
     document.querySelectorAll(".view").forEach((section) => {
       section.classList.toggle(
         "active",
-        section.id === `view-${view}`
+        section.id === "view-" + view
       );
     });
 
-    viewTitle.textContent =
-      VIEW_TITLES[view] || "";
+    viewTitle.textContent = VIEW_TITLES[view] || "";
 
-    if (view === "memoryview") {
-      openMemoryDrawer();
-    }
+    /*
+     * IMPORTANT:
+     * Memory is now treated as a normal full-page view.
+     *
+     * We no longer automatically open the memory drawer
+     * when clicking Memory.
+     */
 
     closeSidebarDrawer();
+
+    if (view !== "memoryview") {
+      closeMemoryDrawer();
+    }
   }
 
-  el("nav").addEventListener("click", (event) => {
-    const button =
-      event.target.closest(".nav-item");
+  el("nav").addEventListener("click", (e) => {
+    const btn = e.target.closest(".nav-item");
 
-    if (!button) return;
+    if (!btn) return;
 
-    setActiveView(button.dataset.view);
+    setActiveView(btn.dataset.view);
   });
 
   // ============================================================
   // SIDEBAR
   // ============================================================
 
-  el("sidebarCollapse").addEventListener(
-    "click",
-    () => {
-      app.classList.toggle(
-        "sidebar-collapsed"
-      );
-    }
-  );
+  el("sidebarCollapse").addEventListener("click", () => {
+    app.classList.toggle("sidebar-collapsed");
+  });
 
   // ============================================================
   // MOBILE DRAWERS
@@ -302,43 +212,37 @@
     closeMemoryDrawer
   );
 
-  drawerBackdrop.addEventListener(
-    "click",
-    () => {
-      closeSidebarDrawer();
-      closeMemoryDrawer();
-    }
-  );
+  drawerBackdrop.addEventListener("click", () => {
+    closeSidebarDrawer();
+    closeMemoryDrawer();
+  });
 
   // ============================================================
   // MEMORY FILTERS
   // ============================================================
 
-  el("memoryFilters").addEventListener(
-    "click",
-    (event) => {
-      const chip =
-        event.target.closest(".filter-chip");
+  el("memoryFilters").addEventListener("click", (e) => {
+    const chip = e.target.closest(".filter-chip");
 
-      if (!chip) return;
+    if (!chip) return;
 
-      state.filter = chip.dataset.filter;
+    state.filter = chip.dataset.filter;
 
-      document
-        .querySelectorAll(".filter-chip")
-        .forEach((item) => {
-          item.classList.toggle(
-            "active",
-            item === chip
-          );
-        });
+    document
+      .querySelectorAll(".filter-chip")
+      .forEach((c) => {
+        c.classList.toggle(
+          "active",
+          c === chip
+        );
+      });
 
-      renderMemoryList();
-    }
-  );
+    renderMemoryPage();
+    renderMemoryList();
+  });
 
   // ============================================================
-  // MEMORY / METRICS
+  // MEMORY COUNTS
   // ============================================================
 
   function badgeCounts() {
@@ -349,12 +253,7 @@
     };
 
     state.entities.forEach((entity) => {
-      if (
-        Object.prototype.hasOwnProperty.call(
-          counts,
-          entity.badge
-        )
-      ) {
+      if (counts[entity.badge] !== undefined) {
         counts[entity.badge]++;
       }
     });
@@ -362,13 +261,16 @@
     return counts;
   }
 
+  // ============================================================
+  // OVERVIEW METRICS
+  // ============================================================
+
   function renderMetrics() {
     const counts = badgeCounts();
 
     el("metricMethods").textContent =
       state.entities.length;
 
-    // The current backend doesn't expose class count.
     el("metricClasses").textContent = "—";
 
     el("metricConfirmed").textContent =
@@ -380,6 +282,10 @@
     el("metricStale").textContent =
       counts.STALE;
   }
+
+  // ============================================================
+  // HEALTH BARS
+  // ============================================================
 
   function healthBarsMarkup(counts, total) {
     if (!total) {
@@ -396,12 +302,15 @@
       "STALE",
     ]
       .map((key) => {
-        const percentage = Math.round(
-          (counts[key] / total) * 100
-        );
+        const pct = total
+          ? Math.round(
+              (counts[key] / total) * 100
+            )
+          : 0;
 
         return `
           <div class="health-row">
+
             <span class="health-label">
               ${key}
             </span>
@@ -409,13 +318,14 @@
             <div class="health-track">
               <div
                 class="health-fill ${key}"
-                style="width:${percentage}%"
+                style="width:${pct}%"
               ></div>
             </div>
 
             <span class="health-count">
               ${counts[key]}
             </span>
+
           </div>
         `;
       })
@@ -439,10 +349,32 @@
       markup;
   }
 
+  // ============================================================
+  // DATE FORMATTING
+  // ============================================================
+
+  function formatDate(ts) {
+    if (!ts) return null;
+
+    try {
+      return new Date(
+        ts * 1000
+      ).toLocaleString();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ============================================================
+  // MEMORY CARD
+  // ============================================================
+
   function entityCardMarkup(entity) {
     const validated =
       entity.validated_by
-        ? `Validated by ${escapeHtml(entity.validated_by)}`
+        ? `Validated by ${escapeHtml(
+            entity.validated_by
+          )}`
         : "Not yet validated";
 
     const changed =
@@ -455,6 +387,7 @@
         class="entity-card"
         data-entity="${escapeHtml(entity.entity)}"
       >
+
         <div class="name">
           ${escapeHtml(entity.entity)}
         </div>
@@ -465,15 +398,21 @@
 
         <div class="meta">
           ${validated}
+
           ${
             changed
-              ? " · code seen " + escapeHtml(changed)
+              ? " · code seen " + changed
               : ""
           }
         </div>
+
       </div>
     `;
   }
+
+  // ============================================================
+  // MEMORY SIDE LIST
+  // ============================================================
 
   function renderMemoryList() {
     const filtered =
@@ -505,6 +444,297 @@
   }
 
   // ============================================================
+  // NEW FULL MEMORY PAGE
+  // ============================================================
+
+  function renderMemoryPage() {
+    const container =
+      el("memoryPageContent");
+
+    if (!container) {
+      return;
+    }
+
+    const counts = badgeCounts();
+
+    const filtered =
+      state.filter === "ALL"
+        ? state.entities
+        : state.entities.filter(
+            (entity) =>
+              entity.badge === state.filter
+          );
+
+    container.innerHTML = `
+      <div class="memory-dashboard">
+
+        <div class="memory-summary-grid">
+
+          <div class="memory-stat total">
+            <div class="memory-stat-label">
+              Total Memories
+            </div>
+
+            <div class="memory-stat-value">
+              ${state.entities.length}
+            </div>
+
+            <div class="memory-stat-description">
+              Tracked code knowledge
+            </div>
+          </div>
+
+          <div class="memory-stat confirmed">
+            <div class="memory-stat-label">
+              Confirmed
+            </div>
+
+            <div class="memory-stat-value">
+              ${counts.CONFIRMED}
+            </div>
+
+            <div class="memory-stat-description">
+              Reviewed and validated
+            </div>
+          </div>
+
+          <div class="memory-stat inferred">
+            <div class="memory-stat-label">
+              Inferred
+            </div>
+
+            <div class="memory-stat-value">
+              ${counts.INFERRED}
+            </div>
+
+            <div class="memory-stat-description">
+              Derived from source code
+            </div>
+          </div>
+
+          <div class="memory-stat stale">
+            <div class="memory-stat-label">
+              Stale
+            </div>
+
+            <div class="memory-stat-value">
+              ${counts.STALE}
+            </div>
+
+            <div class="memory-stat-description">
+              Needs re-validation
+            </div>
+          </div>
+
+        </div>
+
+        <div class="memory-dashboard-header">
+
+          <div>
+            <h2>Codebase Memory</h2>
+
+            <p>
+              Knowledge extracted from your legacy codebase
+              and tracked over time.
+            </p>
+          </div>
+
+          <div class="memory-dashboard-filters">
+
+            ${["ALL", "CONFIRMED", "INFERRED", "STALE"]
+              .map(
+                (filter) => `
+                  <button
+                    class="memory-page-filter ${
+                      state.filter === filter
+                        ? "active"
+                        : ""
+                    }"
+                    data-page-filter="${filter}"
+                    type="button"
+                  >
+                    ${filter}
+                  </button>
+                `
+              )
+              .join("")}
+
+          </div>
+
+        </div>
+
+        ${
+          filtered.length
+            ? `
+              <div class="memory-card-grid">
+
+                ${filtered
+                  .map(
+                    (entity) => `
+                      <div
+                        class="memory-detail-card"
+                        data-memory-entity="${escapeHtml(
+                          entity.entity
+                        )}"
+                      >
+
+                        <div class="memory-card-top">
+
+                          <div class="memory-entity-name">
+                            ${escapeHtml(
+                              entity.entity
+                            )}
+                          </div>
+
+                          <span class="badge ${
+                            entity.badge
+                          }">
+                            ${entity.badge}
+                          </span>
+
+                        </div>
+
+                        <div class="memory-card-info">
+
+                          <div class="memory-info-row">
+                            <span>Status</span>
+                            <strong>
+                              ${entity.badge}
+                            </strong>
+                          </div>
+
+                          <div class="memory-info-row">
+                            <span>Validated by</span>
+                            <strong>
+                              ${
+                                entity.validated_by
+                                  ? escapeHtml(
+                                      entity.validated_by
+                                    )
+                                  : "Not validated"
+                              }
+                            </strong>
+                          </div>
+
+                          <div class="memory-info-row">
+                            <span>Last validated</span>
+                            <strong>
+                              ${
+                                formatDate(
+                                  entity.last_validated_at
+                                ) || "—"
+                              }
+                            </strong>
+                          </div>
+
+                          <div class="memory-info-row">
+                            <span>Code changed</span>
+                            <strong>
+                              ${
+                                formatDate(
+                                  entity.last_code_changed_at
+                                ) || "—"
+                              }
+                            </strong>
+                          </div>
+
+                        </div>
+
+                        <button
+                          class="memory-inspect-btn"
+                          data-inspect="${escapeHtml(
+                            entity.entity
+                          )}"
+                          type="button"
+                        >
+                          Inspect Entity →
+                        </button>
+
+                      </div>
+                    `
+                  )
+                  .join("")}
+
+              </div>
+            `
+            : `
+              <div class="memory-empty-state">
+
+                <div class="memory-empty-icon">
+                  ◇
+                </div>
+
+                <h3>
+                  No memories found
+                </h3>
+
+                <p>
+                  ${
+                    state.entities.length
+                      ? "No memories match the selected filter."
+                      : "Ingest your repository to start building codebase memory."
+                  }
+                </p>
+
+              </div>
+            `
+        }
+
+      </div>
+    `;
+
+    container
+      .querySelectorAll(
+        ".memory-page-filter"
+      )
+      .forEach((button) => {
+        button.addEventListener(
+          "click",
+          () => {
+            state.filter =
+              button.dataset.pageFilter;
+
+            renderMemoryPage();
+
+            document
+              .querySelectorAll(".filter-chip")
+              .forEach((chip) => {
+                chip.classList.toggle(
+                  "active",
+                  chip.dataset.filter ===
+                    state.filter
+                );
+              });
+          }
+        );
+      });
+
+    container
+      .querySelectorAll(
+        ".memory-inspect-btn"
+      )
+      .forEach((button) => {
+        button.addEventListener(
+          "click",
+          () => {
+            const entity =
+              button.dataset.inspect;
+
+            state.selectedEntity =
+              entity;
+
+            setActiveView(
+              "explorer"
+            );
+
+            renderExplorerList();
+            renderExplorerDetail();
+          }
+        );
+      });
+  }
+
+  // ============================================================
   // CODE EXPLORER
   // ============================================================
 
@@ -525,19 +755,28 @@
           (entity) => `
             <div
               class="entity-row ${
-                state.selectedEntity === entity.entity
+                state.selectedEntity ===
+                entity.entity
                   ? "active"
                   : ""
               }"
-              data-entity="${escapeHtml(entity.entity)}"
+              data-entity="${escapeHtml(
+                entity.entity
+              )}"
             >
+
               <span class="entity-row-name">
-                ${escapeHtml(entity.entity)}
+                ${escapeHtml(
+                  entity.entity
+                )}
               </span>
 
-              <span class="badge ${entity.badge}">
+              <span class="badge ${
+                entity.badge
+              }">
                 ${entity.badge}
               </span>
+
             </div>
           `
         )
@@ -550,8 +789,8 @@
 
     const entity =
       state.entities.find(
-        (item) =>
-          item.entity ===
+        (e) =>
+          e.entity ===
           state.selectedEntity
       );
 
@@ -567,7 +806,9 @@
 
     const validated =
       entity.validated_by
-        ? `Validated by ${escapeHtml(entity.validated_by)}`
+        ? `Validated by ${escapeHtml(
+            entity.validated_by
+          )}`
         : "Not yet validated";
 
     const changed =
@@ -581,26 +822,33 @@
       );
 
     detail.innerHTML = `
-      <span class="badge-inline ${entity.badge}">
+
+      <span class="badge-inline ${
+        entity.badge
+      }">
         ${entity.badge}
       </span>
 
       <div class="detail-title">
-        ${escapeHtml(entity.entity)}
+        ${escapeHtml(
+          entity.entity
+        )}
       </div>
 
       <div class="detail-meta">
         ${validated}
+
         ${
           confirmedAt
             ? " · confirmed " +
-              escapeHtml(confirmedAt)
+              confirmedAt
             : ""
         }
+
         ${
           changed
             ? " · code seen " +
-              escapeHtml(changed)
+              changed
             : ""
         }
       </div>
@@ -613,6 +861,7 @@
         class="detail-body"
         id="explainBody"
       >
+
         <button
           class="explain-btn"
           id="explainBtn"
@@ -620,20 +869,7 @@
         >
           Ask LegacyLens to explain this
         </button>
-      </div>
 
-      <div class="detail-section-label">
-        Memory Status
-      </div>
-
-      <div class="source-placeholder">
-        ${
-          entity.badge === "STALE"
-            ? "This explanation was previously validated, but the code changed after validation."
-            : entity.badge === "CONFIRMED"
-              ? "This explanation was human-validated and the code has not changed since validation."
-              : "This explanation has been inferred from the code but has not yet been human-validated."
-        }
       </div>
 
       <div class="detail-section-label">
@@ -641,17 +877,16 @@
       </div>
 
       <div class="source-placeholder">
-        Raw source snippets are not currently exposed by the backend.
-        The entity can still be explained using the agent's retained
-        code knowledge.
+        Source snippet is not currently exposed
+        by the backend.
       </div>
     `;
 
-    const button =
+    const btn =
       el("explainBtn");
 
-    if (button) {
-      button.addEventListener(
+    if (btn) {
+      btn.addEventListener(
         "click",
         () =>
           explainEntity(
@@ -661,6 +896,10 @@
       );
     }
   }
+
+  // ============================================================
+  // EXPLAIN ENTITY
+  // ============================================================
 
   async function explainEntity(
     entityName,
@@ -676,71 +915,54 @@
     `;
 
     try {
-      const response =
+      const res =
         await fetch(
           `${API_BASE}/chat`,
           {
             method: "POST",
+
             headers: {
               "Content-Type":
                 "application/json",
             },
+
             body: JSON.stringify({
               message:
                 `What does ${entityName} do?`,
+
               user_name:
                 userNameInput.value ||
                 "unknown reviewer",
+
               history: [],
             }),
           }
         );
 
-      let data = {};
-
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          friendlyChatError(
-            response.status,
-            data
-          )
-        );
-      }
-
-      const reply =
-        data.reply || data.detail || "";
-
-      if (!reply) {
-        throw new Error(
-          "No explanation was returned."
-        );
-      }
-
-      if (isInternalErrorText(reply)) {
-        throw new Error(
-          "The AI service could not complete this explanation."
-        );
-      }
+      const data =
+        await res.json();
 
       target.innerHTML = "";
 
       target.appendChild(
-        renderMarkdown(reply)
+        renderMarkdown(
+          data.reply ||
+            data.detail ||
+            "(no reply)"
+        )
       );
-
-    } catch (error) {
+    } catch (e) {
       target.innerHTML = `
         <div
           class="empty-state"
-          style="padding:8px 0;text-align:left;"
+          style="
+            padding:8px 0;
+            text-align:left;
+            color:var(--stale);
+          "
         >
-          ${escapeHtml(error.message)}
+          Could not reach backend:
+          ${escapeHtml(e.message)}
         </div>
       `;
     }
@@ -754,7 +976,8 @@
     const stale =
       state.entities.filter(
         (entity) =>
-          entity.badge === "STALE"
+          entity.badge ===
+          "STALE"
       );
 
     if (!stale.length) {
@@ -773,12 +996,20 @@
         .join("");
   }
 
+  // ============================================================
+  // RENDER EVERYTHING
+  // ============================================================
+
   function renderAll() {
     renderMetrics();
     renderHealth();
+
     renderMemoryList();
+    renderMemoryPage();
+
     renderExplorerList();
     renderExplorerDetail();
+
     renderStaleList();
   }
 
@@ -788,9 +1019,9 @@
 
   document.addEventListener(
     "click",
-    (event) => {
+    (e) => {
       const row =
-        event.target.closest(
+        e.target.closest(
           ".entity-row, .entity-card"
         );
 
@@ -814,12 +1045,12 @@
   );
 
   // ============================================================
-  // MEMORY REFRESH
+  // MEMORY API
   // ============================================================
 
   async function refreshMemories() {
     try {
-      const response =
+      const res =
         await fetch(
           `${API_BASE}/memories`,
           {
@@ -827,32 +1058,39 @@
           }
         );
 
-      if (!response.ok) {
+      if (!res.ok) {
         throw new Error(
-          `Memory API returned ${response.status}`
+          "Failed to load memories"
         );
       }
 
       const data =
-        await response.json();
+        await res.json();
 
       state.entities =
-        Array.isArray(data.entities)
-          ? data.entities
-          : [];
+        data.entities || [];
 
       renderAll();
+    } catch (e) {
+      el("memoryList").innerHTML = `
+        <div class="empty-state">
+          Could not reach backend.
+        </div>
+      `;
 
-    } catch (error) {
-      console.error(
-        "Memory refresh failed:",
-        error
-      );
+      const memoryPage =
+        el("memoryPageContent");
 
-      if (!state.entities.length) {
-        el("memoryList").innerHTML = `
-          <div class="empty-state">
-            Could not load codebase memory.
+      if (memoryPage) {
+        memoryPage.innerHTML = `
+          <div class="memory-empty-state">
+            <h3>
+              Backend unavailable
+            </h3>
+
+            <p>
+              Could not load codebase memory.
+            </p>
           </div>
         `;
       }
@@ -865,7 +1103,7 @@
 
   async function checkHealth() {
     try {
-      const response =
+      const res =
         await fetch(
           `${API_BASE}/health`,
           {
@@ -873,31 +1111,26 @@
           }
         );
 
-      if (!response.ok) {
+      if (res.ok) {
+        statusDot.className =
+          "status-dot ok";
+
+        statusText.textContent =
+          "Backend Connected";
+
+        settingsStatus.textContent =
+          "Connected";
+      } else {
         throw new Error(
-          "Backend unavailable"
+          "Bad status"
         );
       }
-
-      state.backendOnline = true;
-
-      statusDot.className =
-        "status-dot ok";
-
-      statusText.textContent =
-        "Backend Connected";
-
-      settingsStatus.textContent =
-        "Connected";
-
-    } catch (error) {
-      state.backendOnline = false;
-
+    } catch (e) {
       statusDot.className =
         "status-dot bad";
 
       statusText.textContent =
-        "Backend Unreachable";
+        "Backend unreachable";
 
       settingsStatus.textContent =
         "Unreachable";
@@ -915,47 +1148,63 @@
     emptyChat.style.display =
       "none";
 
-    const wrapper =
+    const wrap =
       document.createElement(
         "div"
       );
 
-    wrapper.className =
-      `msg ${role}`;
+    wrap.className =
+      "msg " + role;
 
     if (role === "assistant") {
-      wrapper.appendChild(
+      const badgeMatch =
+        text.match(
+          /\b(CONFIRMED|INFERRED|STALE)\b/
+        );
+
+      if (badgeMatch) {
+        const badge =
+          document.createElement(
+            "span"
+          );
+
+        badge.className =
+          "badge-inline " +
+          badgeMatch[1];
+
+        badge.textContent =
+          badgeMatch[1];
+
+        wrap.appendChild(
+          badge
+        );
+
+        wrap.appendChild(
+          document.createElement(
+            "br"
+          )
+        );
+      }
+
+      wrap.appendChild(
         renderMarkdown(text)
       );
-
     } else {
-      wrapper.textContent =
+      wrap.textContent =
         text;
     }
 
     messagesEl.appendChild(
-      wrapper
+      wrap
     );
 
     messagesEl.scrollTop =
       messagesEl.scrollHeight;
   }
 
-  function trimHistory() {
-    if (
-      state.history.length <=
-      MAX_HISTORY_MESSAGES
-    ) {
-      return;
-    }
-
-    state.history =
-      state.history.slice(
-        -MAX_HISTORY_MESSAGES
-      );
-  }
-
-  async function sendMessage(text) {
+  async function sendMessage(
+    text
+  ) {
     const message =
       (
         text !== undefined
@@ -967,7 +1216,8 @@
 
     chatInput.value = "";
 
-    sendBtn.disabled = true;
+    sendBtn.disabled =
+      true;
 
     typingIndicator.hidden =
       false;
@@ -977,100 +1227,59 @@
       message
     );
 
-    // IMPORTANT:
-    // Send only previous history here.
-    // The backend appends the current message itself.
-    const previousHistory =
-      state.history.slice(
-        -MAX_HISTORY_MESSAGES
-      );
+    state.history.push({
+      role: "user",
+      content: message,
+    });
 
     try {
-      const response =
+      const res =
         await fetch(
           `${API_BASE}/chat`,
           {
             method: "POST",
+
             headers: {
               "Content-Type":
                 "application/json",
             },
+
             body: JSON.stringify({
               message,
+
               user_name:
                 userNameInput.value ||
                 "unknown reviewer",
+
               history:
-                previousHistory,
+                state.history,
             }),
           }
         );
 
-      let data = {};
-
-      try {
-        data =
-          await response.json();
-      } catch {
-        data = {};
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          friendlyChatError(
-            response.status,
-            data
-          )
-        );
-      }
+      const data =
+        await res.json();
 
       const reply =
         data.reply ||
         data.detail ||
-        "";
-
-      if (!reply) {
-        throw new Error(
-          "The backend returned an empty response."
-        );
-      }
-
-      if (isInternalErrorText(reply)) {
-        throw new Error(
-          "The AI service could not complete this request. Please try again."
-        );
-      }
+        "(no reply)";
 
       addMessage(
         "assistant",
         reply
       );
 
-      // Save conversation AFTER successful response.
-      state.history.push({
-        role: "user",
-        content: message,
-      });
-
       state.history.push({
         role: "assistant",
         content: reply,
       });
-
-      trimHistory();
-
-    } catch (error) {
-      console.error(
-        "Chat request failed:",
-        error
-      );
-
+    } catch (e) {
       addMessage(
         "error",
-        error.message ||
-          "Unable to contact backend."
+        "Error reaching backend: " +
+          e.message
       );
-
     } finally {
       sendBtn.disabled =
         false;
@@ -1078,16 +1287,14 @@
       typingIndicator.hidden =
         true;
 
-      chatInput.focus();
-
       refreshMemories();
     }
   }
 
   chatForm.addEventListener(
     "submit",
-    (event) => {
-      event.preventDefault();
+    (e) => {
+      e.preventDefault();
 
       sendMessage();
     }
@@ -1097,29 +1304,29 @@
   // SUGGESTED QUESTIONS
   // ============================================================
 
-  el("suggestedQuestions")
-    .addEventListener(
-      "click",
-      (event) => {
-        const button =
-          event.target.closest(
-            ".suggestion"
-          );
-
-        if (!button) return;
-
-        sendMessage(
-          button.textContent
+  el("suggestedQuestions").addEventListener(
+    "click",
+    (e) => {
+      const btn =
+        e.target.closest(
+          ".suggestion"
         );
-      }
-    );
+
+      if (!btn) return;
+
+      sendMessage(
+        btn.textContent
+      );
+    }
+  );
 
   // ============================================================
   // SETTINGS
   // ============================================================
 
   settingsApiBase.textContent =
-    API_BASE || "(same origin)";
+    API_BASE ||
+    "(same origin)";
 
   settingsName.value =
     userNameInput.value;
@@ -1141,40 +1348,23 @@
   );
 
   // ============================================================
-  // KEYBOARD SHORTCUTS
-  // ============================================================
-
-  chatInput.addEventListener(
-    "keydown",
-    (event) => {
-      if (
-        event.key === "Enter" &&
-        !event.shiftKey
-      ) {
-        event.preventDefault();
-
-        if (!sendBtn.disabled) {
-          chatForm.requestSubmit();
-        }
-      }
-    }
-  );
-
-  // ============================================================
-  // INIT
+  // INITIALIZATION
   // ============================================================
 
   refreshMemories();
 
   checkHealth();
 
+  // Refresh memory every 8 seconds
   setInterval(
     refreshMemories,
     8000
   );
 
+  // Check backend every 15 seconds
   setInterval(
     checkHealth,
     15000
   );
+
 })();
