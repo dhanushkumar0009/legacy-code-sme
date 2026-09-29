@@ -3,136 +3,195 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Legacy Code SME</title>
-  <style>
-    :root {
-      --bg: #0f1115; --panel: #171a21; --border: #2a2f3a;
-      --text: #e6e8eb; --muted: #9aa3af;
-      --confirmed: #3fb950; --inferred: #d29922; --stale: #f85149;
-      --accent: #58a6ff;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg); color: var(--text); height: 100vh; display: flex;
-    }
-    .chat-col { flex: 2; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
-    .memory-col { flex: 1; min-width: 280px; padding: 16px; overflow-y: auto; background: var(--panel); }
-    header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
-    header h1 { font-size: 16px; margin: 0; }
-    header p { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
-    #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
-    .msg { max-width: 80%; padding: 10px 14px; border-radius: 10px; line-height: 1.45; font-size: 14px; white-space: pre-wrap; }
-    .msg.user { align-self: flex-end; background: var(--accent); color: #0b1320; }
-    .msg.agent { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
-    .input-row { display: flex; gap: 8px; padding: 16px; border-top: 1px solid var(--border); }
-    .input-row input { flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 14px; }
-    .input-row button { padding: 10px 18px; border-radius: 8px; border: none; background: var(--accent); color: #0b1320; font-weight: 600; cursor: pointer; }
-    .input-row button:disabled { opacity: .5; cursor: default; }
-    .memory-col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 12px; }
-    .entity-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
-    .entity-card .name { font-weight: 600; font-size: 13px; }
-    .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-top: 6px; }
-    .badge.CONFIRMED { background: rgba(63,185,80,.15); color: var(--confirmed); }
-    .badge.INFERRED { background: rgba(210,153,34,.15); color: var(--inferred); }
-    .badge.STALE { background: rgba(248,81,73,.15); color: var(--stale); }
-    .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
-    .empty { color: var(--muted); font-size: 13px; }
-  </style>
+  <title>LegacyLens — AI-powered legacy code intelligence</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="chat-col">
-    <header>
-      <h1>Legacy Code SME</h1>
-      <p>Ask about the codebase. Answers are labeled CONFIRMED / INFERRED / STALE.</p>
-    </header>
-    <div id="messages"></div>
-    <div class="input-row">
-      <input id="userName" placeholder="Your name" style="max-width:140px" value="Dev" />
-      <input id="input" placeholder="e.g. What does ApplyLateFee do?" />
-      <button id="send">Send</button>
-    </div>
-  </div>
-  <div class="memory-col">
-    <h2>What the agent remembers</h2>
-    <div id="memories"><p class="empty">No entities tracked yet — ingest the sample repo first.</p></div>
-  </div>
+  <div class="app" id="app">
 
-  <script>
-    const API_BASE = window.LEGACY_SME_API_BASE || "";
-    const messagesEl = document.getElementById("messages");
-    const inputEl = document.getElementById("input");
-    const sendBtn = document.getElementById("send");
-    const userNameEl = document.getElementById("userName");
-    const memoriesEl = document.getElementById("memories");
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">LL</div>
+        <div class="brand-text">
+          <div class="brand-name">LegacyLens</div>
+          <div class="brand-tag">Understand the code nobody documented.</div>
+        </div>
+      </div>
 
-    let history = [];
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-view="overview">
+          <span class="nav-icon">&#9638;</span><span class="nav-label">Overview</span>
+        </button>
+        <button class="nav-item" data-view="assistant">
+          <span class="nav-icon">&#10022;</span><span class="nav-label">AI Assistant</span>
+        </button>
+        <button class="nav-item" data-view="explorer">
+          <span class="nav-icon">&#9776;</span><span class="nav-label">Code Explorer</span>
+        </button>
+        <button class="nav-item" data-view="memoryview">
+          <span class="nav-icon">&#9670;</span><span class="nav-label">Memory</span>
+        </button>
+        <button class="nav-item" data-view="analysis">
+          <span class="nav-icon">&#9650;</span><span class="nav-label">Analysis</span>
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-icon">&#9881;</span><span class="nav-label">Settings</span>
+        </button>
+      </nav>
 
-    function addMessage(role, content) {
-      const div = document.createElement("div");
-      div.className = "msg " + role;
-      div.textContent = content;
-      messagesEl.appendChild(div);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
+      <button class="sidebar-collapse" id="sidebarCollapse" title="Collapse sidebar">&laquo;</button>
+    </aside>
 
-    async function sendMessage() {
-      const text = inputEl.value.trim();
-      if (!text) return;
-      inputEl.value = "";
-      sendBtn.disabled = true;
-      addMessage("user", text);
-      history.push({ role: "user", content: text });
+    <!-- MAIN -->
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn mobile-only" id="menuToggle" aria-label="Menu">&#9776;</button>
+        <div class="topbar-title" id="viewTitle">Overview</div>
+        <div class="topbar-status">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Checking Claude&hellip;</span>
+        </div>
+        <button class="icon-btn mobile-only" id="memoryToggle" aria-label="Memory">&#9670;</button>
+      </header>
 
-      try {
-        const res = await fetch(`${API_BASE}/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: text,
-            user_name: userNameEl.value || "unknown reviewer",
-            history,
-          }),
-        });
-        const data = await res.json();
-        addMessage("agent", data.reply || data.detail || "(no reply)");
-        history.push({ role: "assistant", content: data.reply || "" });
-      } catch (e) {
-        addMessage("agent", "Error reaching backend: " + e.message);
-      } finally {
-        sendBtn.disabled = false;
-        refreshMemories();
-      }
-    }
+      <main class="content">
 
-    async function refreshMemories() {
-      try {
-        const res = await fetch(`${API_BASE}/memories`);
-        const data = await res.json();
-        if (!data.entities || data.entities.length === 0) {
-          memoriesEl.innerHTML = '<p class="empty">No entities tracked yet — ingest the sample repo first.</p>';
-          return;
-        }
-        memoriesEl.innerHTML = data.entities.map(e => `
-          <div class="entity-card">
-            <div class="name">${e.entity}</div>
-            <span class="badge ${e.badge}">${e.badge}</span>
-            <div class="meta">
-              ${e.validated_by ? "Validated by " + e.validated_by : "Not yet validated"}
-              ${e.last_code_changed_at ? " · code seen " + new Date(e.last_code_changed_at * 1000).toLocaleString() : ""}
+        <!-- OVERVIEW -->
+        <section class="view active" id="view-overview">
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-label">Methods Analyzed</div>
+              <div class="metric-value" id="metricMethods">&mdash;</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Classes</div>
+              <div class="metric-value" id="metricClasses">&mdash;</div>
+              <div class="metric-note">Not exposed by the API yet</div>
+            </div>
+            <div class="metric-card confirmed">
+              <div class="metric-label">Confirmed Memories</div>
+              <div class="metric-value" id="metricConfirmed">&mdash;</div>
+            </div>
+            <div class="metric-card inferred">
+              <div class="metric-label">Inferred Memories</div>
+              <div class="metric-value" id="metricInferred">&mdash;</div>
+            </div>
+            <div class="metric-card stale">
+              <div class="metric-label">Stale Memories</div>
+              <div class="metric-value" id="metricStale">&mdash;</div>
             </div>
           </div>
-        `).join("");
-      } catch (e) {
-        memoriesEl.innerHTML = '<p class="empty">Could not reach backend.</p>';
-      }
-    }
 
-    sendBtn.addEventListener("click", sendMessage);
-    inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+          <div class="panel">
+            <div class="panel-header"><h2>Memory Health</h2></div>
+            <div class="health-bars" id="healthBars">
+              <div class="empty-state">No entities tracked yet &mdash; ingest a repo to see memory health.</div>
+            </div>
+          </div>
+        </section>
 
-    refreshMemories();
-    setInterval(refreshMemories, 8000);
-  </script>
+        <!-- AI ASSISTANT -->
+        <section class="view" id="view-assistant">
+          <div class="chat-wrap">
+            <div class="chat-messages" id="messages">
+              <div class="empty-chat" id="emptyChat">
+                <div class="empty-chat-title">Understand your legacy codebase.</div>
+                <div class="empty-chat-sub">Ask questions about business logic, methods, dependencies, and historical knowledge.</div>
+                <div class="suggested-questions" id="suggestedQuestions">
+                  <button class="suggestion" type="button">What does ApplyLateFee do?</button>
+                  <button class="suggestion" type="button">Explain the CancelOrder business logic.</button>
+                  <button class="suggestion" type="button">What happens when a payment fails?</button>
+                  <button class="suggestion" type="button">Show me potentially stale knowledge.</button>
+                </div>
+              </div>
+            </div>
+            <div class="typing-indicator" id="typingIndicator" hidden>
+              <span class="typing-label">LegacyLens is thinking</span>
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            </div>
+            <form class="chat-input-row" id="chatForm">
+              <input id="userName" class="name-input" placeholder="Your name" value="Dev" autocomplete="off" />
+              <input id="chatInput" class="chat-input" placeholder="Ask about the codebase&hellip;" autocomplete="off" />
+              <button type="submit" class="send-btn" id="sendBtn">Send</button>
+            </form>
+          </div>
+        </section>
+
+        <!-- CODE EXPLORER -->
+        <section class="view" id="view-explorer">
+          <div class="explorer-layout">
+            <div class="panel explorer-list">
+              <div class="panel-header"><h2>Entities</h2></div>
+              <div class="entity-list" id="explorerEntities">
+                <div class="empty-state">No entities tracked yet.</div>
+              </div>
+            </div>
+            <div class="panel explorer-detail" id="explorerDetail">
+              <div class="empty-state">Select an entity on the left to inspect it.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ANALYSIS -->
+        <section class="view" id="view-analysis">
+          <div class="panel">
+            <div class="panel-header"><h2>Codebase Health</h2></div>
+            <div class="health-bars" id="analysisHealthBars">
+              <div class="empty-state">No data yet.</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Needs Attention &mdash; Stale Knowledge</h2></div>
+            <div class="entity-list" id="staleList">
+              <div class="empty-state">Nothing stale right now.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="view" id="view-settings">
+          <div class="panel">
+            <div class="panel-header"><h2>Reviewer</h2></div>
+            <label class="field">
+              <span>Your name (used when validating explanations)</span>
+              <input id="settingsName" class="text-input" autocomplete="off" />
+            </label>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Connection</h2></div>
+            <div class="settings-row"><span>API base</span><span id="settingsApiBase">&mdash;</span></div>
+            <div class="settings-row"><span>Backend status</span><span id="settingsStatus">&mdash;</span></div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+
+    <!-- MEMORY PANEL -->
+    <aside class="memory-panel" id="memoryPanel">
+      <div class="memory-panel-header">
+        <h2>Codebase Memory</h2>
+        <button class="icon-btn mobile-only" id="memoryClose" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="memory-filters" id="memoryFilters">
+        <button class="filter-chip active" data-filter="ALL" type="button">All</button>
+        <button class="filter-chip" data-filter="CONFIRMED" type="button">Confirmed</button>
+        <button class="filter-chip" data-filter="INFERRED" type="button">Inferred</button>
+        <button class="filter-chip" data-filter="STALE" type="button">Stale</button>
+      </div>
+      <div class="memory-list" id="memoryList">
+        <div class="empty-state">No entities tracked yet &mdash; ingest the sample repo first.</div>
+      </div>
+    </aside>
+
+  </div>
+
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
